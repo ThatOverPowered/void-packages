@@ -100,7 +100,7 @@ jobs:
           echo "regenerate_repodata=$regenerate" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Compilar ${{ matrix.package }}
+    name: Compilar paquete
     needs: detect
     if: needs.detect.outputs.has_packages == 'true'
     runs-on: ubuntu-latest
@@ -149,6 +149,25 @@ jobs:
           sudo -Eu builder ./xbps-src pkg "${{ matrix.package }}"
           echo "::endgroup::"
 
+      - name: Verificar integridad del paquete compilado
+        working-directory: vp
+        run: |
+          shopt -s nullglob
+          files=(hostdir/binpkgs/*.xbps hostdir/binpkgs/debug/*.xbps)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::${{ matrix.package }} no generó ningún .xbps"
+            exit 1
+          fi
+          verify_dir="$(mktemp -d)"
+          cp "${files[@]}" "$verify_dir"/
+          out="$(xbps-rindex -a "$verify_dir"/*.xbps 2>&1)" || true
+          echo "$out"
+          if echo "$out" | grep -q 'ERROR:'; then
+            echo "::error::Paquete corrupto detectado en ${{ matrix.package }}, no se subirá"
+            exit 1
+          fi
+          rm -rf "$verify_dir"
+
       - name: Subir paquete(s) compilado(s)
         uses: actions/upload-artifact@v4
         with:
@@ -193,7 +212,6 @@ jobs:
         with:
           pattern: binpkgs-*
           path: binpkgs
-          merge-multiple: true
 
       - name: Descargar release actual (si existe)
         run: |

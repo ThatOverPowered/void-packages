@@ -93,4 +93,20 @@ jobs:
             echo "::group::Compilando $pkg"
             sudo -Eu builder ./xbps-src pkg "$pkg"
             echo "::endgroup::"
+
+            shopt -s nullglob
+            files=(hostdir/binpkgs/"$pkg"-*.xbps hostdir/binpkgs/debug/"$pkg"-*.xbps)
+            if [ "${#files[@]}" -eq 0 ]; then
+              echo "::error::$pkg no generó ningún .xbps"
+              exit 1
+            fi
+            verify_dir="$(mktemp -d)"
+            cp "${files[@]}" "$verify_dir"/
+            out="$(xbps-rindex -a "$verify_dir"/*.xbps 2>&1)" || true
+            echo "$out"
+            if echo "$out" | grep -q 'ERROR:'; then
+              echo "::error::Paquete corrupto detectado en $pkg"
+              exit 1
+            fi
+            rm -rf "$verify_dir"
           done <<< "${{ steps.pkgs.outputs.list }}"
