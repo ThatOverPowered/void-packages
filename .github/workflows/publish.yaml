@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       regenerate_repodata:
-        description: 'Forzar la regeneración completa del x86_64-repodata a partir de todos los paquetes ya publicados en la release (aunque no se compile ningún paquete nuevo)'
+        description: 'Regenerar x86_64-repodata'
         type: boolean
         default: false
 
