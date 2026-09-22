@@ -1,0 +1,48 @@
+# Template file for 'scx-tools'
+pkgname=scx-tools
+version=1.1.3
+revision=1
+archs="x86_64"
+wrksrc="scx-loader"
+build_style=cargo
+conf_files="/etc/scx_loader.toml"
+hostmakedepends="git clang pkg-config elfutils-devel libseccomp-devel"
+makedepends="libbpf-devel zlib-devel libzstd-devel libseccomp-devel openssl-devel"
+depends="dbus polkit scx-scheds"
+short_desc="D-Bus interface for managing sched_ext schedulers"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="GPL-2.0-only"
+homepage="https://github.com/sched-ext/scx-loader"
+
+make_check=no
+
+do_fetch() {
+	git clone --depth=1 https://github.com/sched-ext/scx-loader "${wrksrc}"
+}
+
+pre_build() {
+	export CFLAGS_${RUST_BUILD//-/_}="${CFLAGS_host}" \
+		   CXXFLAGS_${RUST_BUILD//-/_}="${CXXFLAGS_host}" \
+		   LDFLAGS_${RUST_BUILD//-/_}="${LDFLAGS_host}" \
+		   CFLAGS_${RUST_TARGET//-/_}="${CFLAGS}" \
+		   CXXFLAGS_${RUST_TARGET//-/_}="${CXXFLAGS}" \
+		   LDFLAGS_${RUST_TARGET//-/_}="${LDFLAGS}" \
+		   CFLAGS="" CXXFLAGS="" LDFLAGS=""
+}
+
+do_install() {
+	vbin target/"${RUST_TARGET}"/release/scx_loader
+	vbin target/"${RUST_TARGET}"/release/scxctl
+
+	vinstall services/org.scx.Loader.service 644 usr/share/dbus-1/system-services
+	vinstall configs/org.scx.Loader.conf     644 usr/share/dbus-1/system.d
+	vinstall configs/org.scx.Loader.xml      644 usr/share/dbus-1/interfaces
+	vinstall configs/org.scx.Loader.policy   644 usr/share/polkit-1/actions
+
+	vconf configs/scx_loader.toml
+	vsv scx-loader
+}
+
+post_install() {
+	vlicense LICENSE
+}

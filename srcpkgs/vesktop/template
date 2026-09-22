@@ -1,0 +1,46 @@
+# Template file for 'vesktop'
+pkgname=vesktop
+version=1.6.7
+revision=1
+wrksrc="Vesktop-${version}"
+archs="x86_64*"
+hostmakedepends="nodejs pnpm python3 pkg-config git"
+makedepends="alsa-lib-devel gtk+3-devel nss-devel"
+depends="alsa-lib gtk+3 nss"
+short_desc="Custom Discord client with Vencord pre-installed"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="GPL-3.0-or-later"
+homepage="https://vesktop.dev"
+changelog="https://github.com/ThatOverPowered/Vesktop/releases"
+distfiles="https://github.com/ThatOverPowered/Vesktop/archive/refs/tags/v${version}.tar.gz"
+checksum=4d14d52706241b44c721046dec8c110071daa407de4f9f05bc2ed68544bb1766
+nopie=yes
+nostrip=yes
+
+do_build() {
+	export HOME="${wrksrc}/.home"
+	mkdir -p "${HOME}"
+
+	pnpm install --frozen-lockfile
+	pnpm run build
+	pnpm exec electron-builder --linux dir
+}
+
+do_install() {
+	vmkdir usr/lib/vesktop
+	vcopy "dist/linux-unpacked/*" usr/lib/vesktop
+
+	cp "${FILESDIR}/vesktop.sh" "${wrksrc}/vesktop"
+	vsed -i "${wrksrc}/vesktop" \
+		-e "s|@appname@|${pkgname}|g" \
+		-e "s|@cfgdirname@|${pkgname}|g" \
+		-e "s|/opt/${pkgname}|/usr/lib/${pkgname}|g"
+	vbin "${wrksrc}/vesktop"
+
+	vinstall "${FILESDIR}/vesktop.desktop" 644 usr/share/applications
+	vinstall build/icon.svg 644 usr/share/icons/hicolor/scalable/apps \
+		vesktop.svg
+
+	vlicense LICENSE
+	vdoc "${FILESDIR}/README.voidlinux"
+}

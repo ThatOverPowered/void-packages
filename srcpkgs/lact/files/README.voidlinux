@@ -1,0 +1,20 @@
+This package installs LACT, a Linux GPU configuration and monitoring tool.
+
+Enable the service:
+
+  # ln -s /etc/sv/lactd /var/service/
+
+Optional runtime dependencies:
+
+  - clinfo:       Displays OpenCL-related GPU details.
+  - Vulkan-Tools: Displays each GPU's Vulkan features and extensions.
+
+Install them manually if you need them:
+
+  # xbps-install -S clinfo Vulkan-Tools
+
+Nvidia support:
+
+GPU control on Nvidia hardware requires the proprietary Nvidia driver
+with its CUDA libraries installed; the open-source nouveau driver is
+not supported for this purpose.

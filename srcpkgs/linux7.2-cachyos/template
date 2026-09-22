@@ -1,0 +1,187 @@
+# Template file for 'linux7.2-cachyos'
+pkgname=linux7.2-cachyos
+version=7.2.6
+revision=1
+_tagrel=1
+_srcname="linux-cachyos-${version}-${_tagrel}"
+wrksrc="${_srcname}"
+_kernver="${version}_${revision}"
+short_desc="Linux CachyOS kernel and modules (${version%.*} series)"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="GPL-2.0-only"
+homepage="https://github.com/CachyOS/linux-cachyos"
+changelog="https://github.com/CachyOS/linux/releases"
+distfiles="https://github.com/CachyOS/linux/archive/refs/tags/cachyos-${version}-${_tagrel}.tar.gz"
+checksum=df0e592cb404cc650664241820d53385b76b4fb284f2ab33ffa9bf9f7d43243d
+
+python_version=3
+archs="x86_64*"
+
+nodebug=yes
+nostrip=yes
+noverifyrdeps=yes
+noshlibprovides=yes
+preserve=yes
+
+hostmakedepends="bc clang cpio elfutils-devel flex gmp-devel kmod libclang libmpc-devel lld llvm openssl-devel pahole perl pkg-config python3 rust rust-bindgen rust-src tar xz zstd"
+
+triggers="kernel-hooks"
+kernel_hooks_version="${_kernver}"
+
+mutable_files="
+ /usr/lib/modules/${_kernver}/modules.builtin.bin
+ /usr/lib/modules/${_kernver}/modules.builtin.alias.bin
+ /usr/lib/modules/${_kernver}/modules.softdep
+ /usr/lib/modules/${_kernver}/modules.dep
+ /usr/lib/modules/${_kernver}/modules.dep.bin
+ /usr/lib/modules/${_kernver}/modules.symbols
+ /usr/lib/modules/${_kernver}/modules.symbols.bin
+ /usr/lib/modules/${_kernver}/modules.alias
+ /usr/lib/modules/${_kernver}/modules.alias.bin
+ /usr/lib/modules/${_kernver}/modules.devname"
+
+export KBUILD_BUILD_TIMESTAMP=$(LC_ALL=C date -ud @${SOURCE_DATE_EPOCH:-0})
+export KBUILD_BUILD_USER=voidlinux
+export KBUILD_BUILD_HOST=voidlinux
+
+_llvm_args="CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1"
+
+post_patch() {
+	vsed -e "s|\$(STRIP) \(--strip-debug -o \$@ \$<;\)|/usr/bin/${STRIP} \1|" -i drivers/firmware/efi/libstub/Makefile
+}
+
+do_configure() {
+	cp -f ${FILESDIR}/x86_64-dotconfig .config
+
+	scripts/config -e CACHY
+	scripts/config -e SCHED_BORE
+	scripts/config -d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3
+	scripts/config -d GENERIC_CPU -d MZEN4 -e X86_NATIVE_CPU
+	scripts/config -d HZ_300 -e HZ_1000 --set-val HZ 1000
+	scripts/config -d HZ_PERIODIC -d NO_HZ_IDLE -d CONTEXT_TRACKING_FORCE -e NO_HZ_FULL_NODEF -e NO_HZ_FULL -e NO_HZ -e NO_HZ_COMMON -e CONTEXT_TRACKING
+	scripts/config -e PREEMPT -d PREEMPT_LAZY
+	scripts/config -d TRANSPARENT_HUGEPAGE_MADVISE -e TRANSPARENT_HUGEPAGE_ALWAYS
+	scripts/config -d LTO_NONE -d LTO_CLANG_FULL -d LTO_CLANG_THIN_DIST -e LTO_CLANG_THIN
+
+	make ${makejobs} ${_llvm_args} olddefconfig
+
+	sed -i -e "s|^\(CONFIG_LOCALVERSION=\).*|\1\"_${revision}\"|" .config
+}
+
+do_build() {
+	export LDFLAGS=
+	export KCFLAGS="-ffile-prefix-map=$wrksrc=."
+	make ${makejobs} ${_llvm_args} prepare
+	make ${makejobs} ${_llvm_args} bzImage modules
+}
+
+do_install() {
+	local hdrdest
+
+	sed -i '2iexit 0' scripts/depmod.sh
+	vmkdir usr/lib
+	ln -sf usr/lib/ ${DESTDIR}
+
+	make ${makejobs} ${_llvm_args} INSTALL_MOD_PATH=${DESTDIR} modules_install
+
+	hdrdest=${DESTDIR}/usr/src/kernel-headers-${_kernver}
+
+	vinstall .config 644 boot config-${_kernver}
+	vinstall System.map 644 boot System.map-${_kernver}
+	vinstall arch/x86/boot/bzImage 644 boot vmlinuz-${_kernver}
+
+	vmkdir usr
+
+	cd ${DESTDIR}/usr/lib/modules/${_kernver}
+	rm -f source build
+	ln -sf ../../../src/kernel-headers-${_kernver} build
+
+	cd ${wrksrc}
+
+	install -Dm644 Makefile ${hdrdest}/Makefile
+	install -Dm644 Kbuild ${hdrdest}/Kbuild
+	install -Dm644 kernel/Makefile ${hdrdest}/kernel/Makefile
+	install -Dm644 .config ${hdrdest}/.config
+	for file in $(find . -name Kconfig\*); do
+		mkdir -p ${hdrdest}/$(dirname $file)
+		install -Dm644 $file ${hdrdest}/${file}
+	done
+	for file in $(find arch/x86 scripts -name module.lds -o -name Kbuild.platforms -o -name Platform); do
+		mkdir -p ${hdrdest}/$(dirname $file)
+		install -Dm644 $file ${hdrdest}/${file}
+	done
+	mkdir -p ${hdrdest}/include
+
+	rm -rf ${DESTDIR}/usr/lib/firmware
+
+	for i in acpi asm-generic clocksource config crypto drm generated linux vdso \
+		math-emu net pcmcia scsi sound trace uapi video xen dt-bindings hyperv keys; do
+		if [ -d include/$i ]; then
+			cp -a include/$i ${hdrdest}/include
+		fi
+	done
+
+	mkdir -p ${hdrdest}/arch/x86
+	cp -a arch/x86/include ${hdrdest}/arch/x86
+
+	cp scripts/sign-file "${XBPS_WRAPPERDIR}"
+
+	cp Module.symvers ${hdrdest}
+	cp -a scripts ${hdrdest}
+	mkdir -p ${hdrdest}/security/selinux
+	cp -a security/selinux/include ${hdrdest}/security/selinux
+	mkdir -p ${hdrdest}/tools/include
+	cp -a tools/include/tools ${hdrdest}/tools/include
+	cp -a tools/include/uapi ${hdrdest}/tools/include
+	if [ -d "arch/x86/tools" ]; then
+		cp -a "arch/x86/tools" "${hdrdest}/arch/x86"
+	fi
+	cp -a kernel/time/timeconst.bc "${hdrdest}/kernel/time"
+	cp -a kernel/bounds.c "${hdrdest}/kernel"
+	mkdir -p "${hdrdest}/arch/x86/entry/syscalls"
+	cp -a arch/x86/entry/syscalls/syscall_32.tbl "${hdrdest}/arch/x86/entry/syscalls"
+
+	mkdir -p ${hdrdest}/arch/x86/kernel
+	cp arch/x86/Makefile ${hdrdest}/arch/x86
+	cp arch/x86/kernel/asm-offsets.s ${hdrdest}/arch/x86/kernel
+
+	mkdir -p ${hdrdest}/tools/objtool
+	cp tools/objtool/objtool ${hdrdest}/tools/objtool
+
+	msg_normal "$pkgver: extracting debug info and compressing modules, please wait...\n"
+	install -Dm644 vmlinux ${DESTDIR}/usr/lib/debug/boot/vmlinux-${_kernver}
+	(
+	cd ${DESTDIR}
+	export DESTDIR
+	export SIGN_FILE="${XBPS_WRAPPERDIR}/sign-file sha512 ${wrksrc}/certs/signing_key.pem ${wrksrc}/certs/signing_key.x509"
+	find ./ -name '*.ko' -print0 | \
+		xargs -0r -n1 -P ${XBPS_MAKEJOBS} ${FILESDIR}/mv-debug
+	)
+
+	depmod -b ${DESTDIR}/usr -F System.map ${_kernver}
+	rm -f ${DESTDIR}/lib
+}
+
+linux7.2-cachyos-headers_package() {
+	preserve=yes
+	nostrip=yes
+	noshlibprovides=yes
+	short_desc+=" - source headers for 3rd party modules"
+	pkg_install() {
+		vmove usr/src
+		vmove usr/lib/modules/${_kernver}/build
+	}
+}
+
+linux7.2-cachyos-dbg_package() {
+	preserve=yes
+	nostrip=yes
+	noverifyrdeps=yes
+	noshlibprovides=yes
+	repository=debug
+	short_desc+=" - debugging symbols"
+	pkg_install() {
+		vmove usr/lib/debug
+		vmove "boot/System.map-${_kernver}"
+	}
+}

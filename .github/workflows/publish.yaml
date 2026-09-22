@@ -1,0 +1,251 @@
+name: Compilar y publicar repositorio
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'srcpkgs/**'
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Paquete(s) a construir, separados por comas:'
+        type: string
+        default: ''
+      build_all:
+        description: 'Construir todos los paquetes'
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-repo
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_TAG: repo
+  ARCH: x86_64
+
+jobs:
+  detect:
+    name: Determinar paquetes a compilar
+    runs-on: ubuntu-latest
+    outputs:
+      packages_json: ${{ steps.detect.outputs.packages_json }}
+      packages_list: ${{ steps.detect.outputs.packages_list }}
+      has_packages: ${{ steps.detect.outputs.has_packages }}
+    steps:
+      - name: Descargar mis plantillas
+        uses: classabbyamp/treeless-checkout-action@v1
+
+      - name: Determinar qué paquetes compilar
+        id: detect
+        run: |
+          pkgs=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_all }}" = "true" ]; then
+            echo "Modo: forzar compilación de TODOS los paquetes"
+            pkgs="$(cd srcpkgs && ls -d */ | tr -d /)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.packages }}" ]; then
+            echo "Modo: forzar compilación de paquetes concretos"
+            pkgs="$(echo '${{ inputs.packages }}' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')"
+          else
+            echo "Modo: automático, detectando paquetes modificados"
+            base="${{ github.event.before }}"
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="HEAD~1"
+            fi
+            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$')"
+          fi
+
+          resolved=""
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            if [ -L "srcpkgs/$pkg" ]; then
+              real="$(basename "$(readlink -f "srcpkgs/$pkg")")"
+            else
+              real="$pkg"
+            fi
+            resolved="${resolved}${real}"$'\n'
+          done <<< "$pkgs"
+          pkgs="$(printf '%s' "$resolved" | sort -u | grep -v '^$' || true)"
+
+          echo "Paquetes a compilar:"
+          echo "$pkgs"
+
+          {
+            echo 'packages_list<<EOF'
+            echo "$pkgs"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+          json="$(printf '%s\n' "$pkgs" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          echo "packages_json=$json" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$pkgs" ]; then
+            echo "has_packages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Compilar ${{ matrix.package }}
+    needs: detect
+    if: needs.detect.outputs.has_packages == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages_json) }}
+
+    container:
+      image: ghcr.io/void-linux/void-glibc-full
+      options: --privileged --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+      volumes:
+        - /dev:/dev
+
+    steps:
+      - name: Preparar contenedor
+        shell: sh
+        run: |
+          sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
+          sysctl -w kernel.unprivileged_userns_clone=1 2>/dev/null || true
+          xbps-install -Syu xbps
+          xbps-install -yu
+          xbps-install -y sudo bash git
+          useradd -G xbuilder -M builder
+
+      - name: Descargar mis plantillas
+        uses: classabbyamp/treeless-checkout-action@v1
+
+      - name: Clonar void-packages
+        run: git clone --depth 1 https://github.com/void-linux/void-packages.git vp
+
+      - name: Fusionar mis plantillas con void-packages
+        run: cp -r --remove-destination srcpkgs/. vp/srcpkgs/
+
+      - name: Inicializar xbps-src
+        working-directory: vp
+        run: |
+          chown -R builder:builder .
+          sudo -Eu builder ./xbps-src binary-bootstrap
+
+      - name: Compilar paquete
+        working-directory: vp
+        run: |
+          echo "::group::Compilando ${{ matrix.package }}"
+          sudo -Eu builder ./xbps-src pkg "${{ matrix.package }}"
+          echo "::endgroup::"
+
+      - name: Subir paquete(s) compilado(s)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binpkgs-${{ matrix.package }}
+          path: |
+            vp/hostdir/binpkgs/*.xbps
+            vp/hostdir/binpkgs/debug/*.xbps
+          if-no-files-found: warn
+          retention-days: 1
+
+  publish:
+    name: Publicar repositorio
+    needs: [detect, build]
+    if: needs.detect.outputs.has_packages == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    container:
+      image: ghcr.io/void-linux/void-glibc-full
+      options: --privileged --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+      volumes:
+        - /dev:/dev
+
+    steps:
+      - name: Preparar contenedor
+        shell: sh
+        run: |
+          xbps-install -Syu xbps
+          xbps-install -yu
+          xbps-install -y sudo bash git github-cli
+          useradd -G xbuilder -M builder
+
+      - name: Descargar todos los paquetes compilados
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binpkgs-*
+          path: binpkgs
+          merge-multiple: true
+
+      - name: Descargar release actual (si existe)
+        run: |
+          mkdir -p repo
+          gh release download "$RELEASE_TAG" -R "${{ github.repository }}" -D repo --clobber || \
+            echo "Todavía no existe la release '$RELEASE_TAG', se creará una nueva."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restaurar clave privada de firma
+        run: |
+          echo "${{ secrets.XBPS_PRIVATE_KEY }}" | base64 -d > /tmp/private.pem
+          chmod 600 /tmp/private.pem
+          chown builder:builder /tmp/private.pem
+
+      - name: Sustituir paquetes actualizados y regenerar repodata
+        working-directory: repo
+        run: |
+          before_list="$(ls . 2>/dev/null | sort)"
+
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            rm -f "${pkg}"-*.xbps "${pkg}"-*.xbps.sig2
+          done <<< "${{ needs.detect.outputs.packages_list }}"
+
+          find ../binpkgs -type f -name '*.xbps' -exec cp -f {} . \;
+
+          chown -R builder:builder .
+
+          sudo -Eu builder xbps-rindex --privkey /tmp/private.pem --sign-pkg ./*.xbps
+          sudo -Eu builder xbps-rindex -a ./*.xbps
+          sudo -Eu builder xbps-rindex --privkey /tmp/private.pem \
+            --sign --signedby "ThatOverPowered <thatoverpowered@voidlinux.org>" .
+
+          after_list="$(ls . 2>/dev/null | sort)"
+
+          comm -23 <(echo "$before_list") <(echo "$after_list") > /tmp/stale_assets.txt || true
+          echo "Recursos obsoletos a eliminar de la release:"
+          cat /tmp/stale_assets.txt || true
+
+      - name: Sincronizar release
+        run: |
+          if ! gh release view "$RELEASE_TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" -R "${{ github.repository }}" \
+              --title "Void Linux ($ARCH)"
+          fi
+
+          if [ -s /tmp/stale_assets.txt ]; then
+            while IFS= read -r asset; do
+              [ -z "$asset" ] && continue
+              gh release delete-asset "$RELEASE_TAG" "$asset" -R "${{ github.repository }}" -y || true
+            done < /tmp/stale_assets.txt
+          fi
+
+          gh release upload "$RELEASE_TAG" repo/* -R "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Borrar clave privada
+        if: always()
+        run: rm -f /tmp/private.pem
+
+  no-changes:
+    name: Sin cambios que compilar
+    needs: detect
+    if: needs.detect.outputs.has_packages == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No hay paquetes que compilar en esta ejecución."

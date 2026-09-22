@@ -1,0 +1,28 @@
+# Template file for 'coolercontrold'
+pkgname=coolercontrold
+version=5.0.1
+revision=1
+wrksrc="coolercontrol-${version}"
+build_wrksrc=coolercontrold
+build_style=cargo
+hostmakedepends="pkg-config protobuf"
+makedepends="libdrm-devel"
+short_desc="Monitor and control your cooling devices (daemon)"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="GPL-3.0-or-later"
+homepage="https://gitlab.com/coolercontrol/coolercontrol"
+distfiles="https://gitlab.com/coolercontrol/coolercontrol/-/releases/${version}/downloads/packages/coolercontrol-${version}.tar.gz"
+checksum=9239f628b35cd122b6c637402caedf4b3937dd073d02ebabe17af67a73b815fb
+conflicts="coolercontrol-liqctld"
+make_check=no
+
+do_install() {
+	vbin "target/${RUST_TARGET}/release/${pkgname}"
+}
+
+post_install() {
+	vsv coolercontrold
+	vman ../packaging/man/coolercontrold.8
+	vlicense ../LICENSE
+	vdoc "${FILESDIR}/README.voidlinux"
+}

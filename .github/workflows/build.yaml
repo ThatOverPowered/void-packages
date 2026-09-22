@@ -1,0 +1,96 @@
+name: Comprobar compilación
+
+on:
+  pull_request:
+    paths:
+      - 'srcpkgs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Probar compilación de paquetes
+    runs-on: ubuntu-latest
+
+    container:
+      image: ghcr.io/void-linux/void-glibc-full
+      options: --privileged --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+      volumes:
+        - /dev:/dev
+
+    steps:
+      - name: Preparar contenedor
+        shell: sh
+        run: |
+          sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
+          sysctl -w kernel.unprivileged_userns_clone=1 2>/dev/null || true
+          xbps-install -Syu xbps
+          xbps-install -yu
+          xbps-install -y sudo bash git
+          useradd -G xbuilder -M builder
+
+      - name: Descargar mis plantillas
+        uses: classabbyamp/treeless-checkout-action@v1
+
+      - name: Determinar qué paquetes cambiaron
+        id: pkgs
+        run: |
+          pkgs=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            git fetch --depth=1 origin "$base" 2>/dev/null || true
+            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$')"
+          fi
+          if [ -z "$pkgs" ]; then
+            pkgs="$(cd srcpkgs && ls -d */ | tr -d /)"
+          fi
+
+          resolved=""
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            if [ -L "srcpkgs/$pkg" ]; then
+              real="$(basename "$(readlink -f "srcpkgs/$pkg")")"
+            else
+              real="$pkg"
+            fi
+            resolved="${resolved}${real}"$'\n'
+          done <<< "$pkgs"
+          pkgs="$(printf '%s' "$resolved" | sort -u | grep -v '^$' || true)"
+
+          echo "Paquetes a compilar:"
+          echo "$pkgs"
+
+          {
+            echo "list<<EOF"
+            echo "$pkgs"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Clonar void-packages
+        run: git clone --depth 1 https://github.com/void-linux/void-packages.git vp
+
+      - name: Fusionar mis plantillas con void-packages
+        run: cp -r --remove-destination srcpkgs/. vp/srcpkgs/
+
+      - name: Inicializar xbps-src
+        working-directory: vp
+        run: |
+          chown -R builder:builder .
+          sudo -Eu builder ./xbps-src binary-bootstrap
+
+      - name: Compilar paquetes modificados
+        working-directory: vp
+        run: |
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            echo "::group::Compilando $pkg"
+            sudo -Eu builder ./xbps-src pkg "$pkg"
+            echo "::endgroup::"
+          done <<< "${{ steps.pkgs.outputs.list }}"

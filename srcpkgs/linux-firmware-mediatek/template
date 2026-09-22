@@ -1,0 +1,41 @@
+# Template file for 'linux-firmware-mediatek'
+pkgname=linux-firmware-mediatek
+version=20260916
+revision=1
+wrksrc="linux-firmware-${version}"
+hostmakedepends="rdfind which zstd"
+short_desc="Binary firmware blobs for the Linux kernel - MediaTek and Ralink blobs"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="custom:see /usr/share/licenses/${pkgname}"
+homepage="https://gitlab.com/kernel-firmware/linux-firmware"
+changelog="https://gitlab.com/kernel-firmware/linux-firmware/-/commits/main"
+distfiles="https://gitlab.com/kernel-firmware/linux-firmware/-/archive/${version}/linux-firmware-${version}.tar.gz"
+checksum=5f129e0d520b9e4e7e019130ba1cd18ab0ff59e9664ea1230532ce174e940ca1
+
+nostrip=yes
+noverifyrdeps=yes
+
+do_install() {
+	env ZSTD_CLEVEL=19 ZSTD_NBTHREADS="${XBPS_MAKEJOBS:-1}" \
+		make install-zst dedup \
+		FIRMWAREDIR=/usr/lib/firmware DESTDIR="${DESTDIR}"
+
+	(
+		cd "${DESTDIR}/usr/lib/firmware"
+
+		find . -mindepth 1 -maxdepth 1 \
+			! -name 'mediatek' \
+			! -name 'mt7*' \
+			! -name 'rt2*' \
+			! -name 'rt3*' \
+			! -name 'rt7*' \
+			! -name 'vpu_d.bin*' \
+			! -name 'vpu_p.bin*' \
+			-exec rm -rf {} +
+	)
+
+	vlicense LICENSES/LICENCE.mediatek
+	for _lic in LICENSES/LICENCE.ralink*; do
+		[ -e "${_lic}" ] && vlicense "${_lic}"
+	done
+}

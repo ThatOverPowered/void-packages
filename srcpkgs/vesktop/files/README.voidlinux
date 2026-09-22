@@ -1,0 +1,12 @@
+This package installs Vesktop, a custom Discord client with Vencord pre-installed.
+
+Optional runtime dependencies:
+
+  - libnotify: Native desktop notifications. Vesktop falls back to its own
+               in-app notifications if missing.
+  - xdg-utils: Allows Vesktop to hand off opening links and files to the
+               their default applications via xdg-open.
+
+Install them manually if you need them:
+
+  # xbps-install -S libnotify xdg-utils

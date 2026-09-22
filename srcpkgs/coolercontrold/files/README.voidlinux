@@ -1,0 +1,16 @@
+This package installs the CoolerControl daemon.
+For the graphical interface, install the coolercontrol package.
+
+Enable the service:
+
+  # ln -s /etc/sv/coolercontrold /var/service/
+
+Optional runtime dependencies, depending on your hardware:
+
+  - liquidctl:    Driver support via liquidctl.
+  - lm_sensors:   Kernel hwmon sensor support.
+  - nvidia-utils: Support for NVIDIA GPUs.
+
+Install them manually if you need them:
+
+  # xbps-install -S liquidctl lm_sensors nvidia-util

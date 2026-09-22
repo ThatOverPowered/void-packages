@@ -1,0 +1,31 @@
+# Template file for 'lact'
+pkgname=lact
+version=0.10.1
+revision=1
+wrksrc="LACT-${version}"
+
+build_style=cargo
+hostmakedepends="pkg-config clang git"
+makedepends="gtk4-devel libadwaita-devel libdrm-devel libdisplay-info-devel"
+depends="hwids"
+short_desc="Linux GPU Configuration And Monitoring Tool"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="MIT"
+homepage="https://github.com/ilya-zlobintsev/LACT"
+changelog="https://raw.githubusercontent.com/ilya-zlobintsev/LACT/master/CHANGELOG.md"
+distfiles="https://github.com/ilya-zlobintsev/LACT/archive/refs/tags/v${version}.tar.gz"
+checksum=cbbbd0336fb65ce539ea29d99fe2e38f7c82de08c07d26dfab355735a88d853c
+
+make_check=no
+
+do_build() {
+	cargo build -p lact --release
+}
+
+do_install() {
+	make PREFIX=/usr DESTDIR="${DESTDIR}" install
+
+	vlicense LICENSE
+	vdoc "${FILESDIR}/README.voidlinux"
+	vsv lactd
+}
