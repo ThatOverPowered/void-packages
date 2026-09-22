@@ -16,6 +16,10 @@ on:
         description: 'Construir todos los paquetes'
         type: boolean
         default: false
+      regenerate_repodata:
+        description: 'Forzar la regeneración completa del x86_64-repodata a partir de todos los paquetes ya publicados en la release (aunque no se compile ningún paquete nuevo)'
+        type: boolean
+        default: false
 
 concurrency:
   group: publish-repo
@@ -37,6 +41,7 @@ jobs:
       packages_json: ${{ steps.detect.outputs.packages_json }}
       packages_list: ${{ steps.detect.outputs.packages_list }}
       has_packages: ${{ steps.detect.outputs.has_packages }}
+      regenerate_repodata: ${{ steps.detect.outputs.regenerate_repodata }}
     steps:
       - name: Descargar mis plantillas
         uses: classabbyamp/treeless-checkout-action@v1
@@ -89,6 +94,10 @@ jobs:
           else
             echo "has_packages=false" >> "$GITHUB_OUTPUT"
           fi
+
+          regenerate="${{ github.event_name == 'workflow_dispatch' && inputs.regenerate_repodata == true }}"
+          echo "¿Forzar regeneración completa del repodata?: $regenerate"
+          echo "regenerate_repodata=$regenerate" >> "$GITHUB_OUTPUT"
 
   build:
     name: Compilar ${{ matrix.package }}
@@ -153,7 +162,11 @@ jobs:
   publish:
     name: Publicar repositorio
     needs: [detect, build]
-    if: needs.detect.outputs.has_packages == 'true'
+    if: |
+      always() &&
+      needs.detect.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.detect.outputs.has_packages == 'true' || needs.detect.outputs.regenerate_repodata == 'true')
     runs-on: ubuntu-latest
 
     permissions:
@@ -175,6 +188,7 @@ jobs:
           useradd -G xbuilder -M builder
 
       - name: Descargar todos los paquetes compilados
+        if: needs.detect.outputs.has_packages == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: binpkgs-*
@@ -205,7 +219,13 @@ jobs:
             rm -f "${pkg}"-*.xbps "${pkg}"-*.xbps.sig2
           done <<< "${{ needs.detect.outputs.packages_list }}"
 
+          mkdir -p ../binpkgs
           find ../binpkgs -type f -name '*.xbps' -exec cp -f {} . \;
+
+          if [ "${{ needs.detect.outputs.regenerate_repodata }}" = "true" ]; then
+            echo "Forzando la regeneración completa del x86_64-repodata a partir de todos los paquetes de la release..."
+            rm -f x86_64-repodata x86_64-repodata.sig2
+          fi
 
           chown -R builder:builder .
 
@@ -245,7 +265,7 @@ jobs:
   no-changes:
     name: Sin cambios que compilar
     needs: detect
-    if: needs.detect.outputs.has_packages == 'false'
+    if: needs.detect.outputs.has_packages == 'false' && needs.detect.outputs.regenerate_repodata == 'false'
     runs-on: ubuntu-latest
     steps:
       - run: echo "No hay paquetes que compilar en esta ejecución."
