@@ -46,7 +46,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
             git fetch --depth=1 origin "$base" 2>/dev/null || true
-            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$')"
+            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$' || true)"
           fi
           if [ -z "$pkgs" ]; then
             pkgs="$(cd srcpkgs && ls -d */ | tr -d /)"

@@ -62,7 +62,7 @@ jobs:
             if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
               base="HEAD~1"
             fi
-            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$')"
+            pkgs="$(git diff --name-only "$base" HEAD -- srcpkgs 2>/dev/null | awk -F/ '{print $2}' | sort -u | grep -v '^$' || true)"
           fi
 
           resolved=""
