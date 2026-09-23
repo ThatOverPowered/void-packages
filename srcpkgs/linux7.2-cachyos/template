@@ -6,7 +6,7 @@ _tagrel=1
 _srcname="linux-cachyos-${version}-${_tagrel}"
 wrksrc="${_srcname}"
 _kernver="${version}_${revision}"
-short_desc="Linux CachyOS kernel and modules (${version%.*} series)"
+short_desc="Linux CachyOS kernel and modules (${version%.*} series, x86-64-v3)"
 maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
 license="GPL-2.0-only"
 homepage="https://github.com/CachyOS/linux-cachyos"
@@ -44,6 +44,8 @@ export KBUILD_BUILD_TIMESTAMP=$(LC_ALL=C date -ud @${SOURCE_DATE_EPOCH:-0})
 export KBUILD_BUILD_USER=voidlinux
 export KBUILD_BUILD_HOST=voidlinux
 
+_isa_flags="-march=x86-64-v3 -mtune=generic"
+
 _llvm_args="CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1"
 
 post_patch() {
@@ -56,12 +58,15 @@ do_configure() {
 	scripts/config -e CACHY
 	scripts/config -e SCHED_BORE
 	scripts/config -d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3
-	scripts/config -d GENERIC_CPU -d MZEN4 -e X86_NATIVE_CPU
+	scripts/config -d X86_NATIVE_CPU -d MZEN4 -e GENERIC_CPU
 	scripts/config -d HZ_300 -e HZ_1000 --set-val HZ 1000
 	scripts/config -d HZ_PERIODIC -d NO_HZ_IDLE -d CONTEXT_TRACKING_FORCE -e NO_HZ_FULL_NODEF -e NO_HZ_FULL -e NO_HZ -e NO_HZ_COMMON -e CONTEXT_TRACKING
 	scripts/config -e PREEMPT -d PREEMPT_LAZY
 	scripts/config -d TRANSPARENT_HUGEPAGE_MADVISE -e TRANSPARENT_HUGEPAGE_ALWAYS
 	scripts/config -d LTO_NONE -d LTO_CLANG_FULL -d LTO_CLANG_THIN_DIST -e LTO_CLANG_THIN
+
+	export CFLAGS="${CFLAGS} ${_isa_flags}"
+	export CXXFLAGS="${CXXFLAGS} ${_isa_flags}"
 
 	make ${makejobs} ${_llvm_args} olddefconfig
 
@@ -70,7 +75,7 @@ do_configure() {
 
 do_build() {
 	export LDFLAGS=
-	export KCFLAGS="-ffile-prefix-map=$wrksrc=."
+	export KCFLAGS="-ffile-prefix-map=$wrksrc=. ${_isa_flags}"
 	make ${makejobs} ${_llvm_args} prepare
 	make ${makejobs} ${_llvm_args} bzImage modules
 }

@@ -2,7 +2,7 @@
 pkgname=vesktop
 version=1.6.7
 revision=1
-wrksrc="Vesktop-${version}"
+wrksrc="Vesktop"
 archs="x86_64*"
 hostmakedepends="nodejs pnpm python3 pkg-config git"
 makedepends="alsa-lib-devel gtk+3-devel nss-devel"
@@ -11,11 +11,12 @@ short_desc="Custom Discord client with Vencord pre-installed"
 maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
 license="GPL-3.0-or-later"
 homepage="https://vesktop.dev"
-changelog="https://github.com/ThatOverPowered/Vesktop/releases"
-distfiles="https://github.com/ThatOverPowered/Vesktop/archive/refs/tags/v${version}.tar.gz"
-checksum=4d14d52706241b44c721046dec8c110071daa407de4f9f05bc2ed68544bb1766
 nopie=yes
 nostrip=yes
+
+do_fetch() {
+	git clone --depth=1 https://github.com/ThatOverPowered/Vesktop "${wrksrc}"
+}
 
 do_build() {
 	export HOME="${wrksrc}/.home"
