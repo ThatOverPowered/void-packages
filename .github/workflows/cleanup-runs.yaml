@@ -1,0 +1,99 @@
+name: Limpiar historial de Actions
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      min_age_days:
+        description: 'Antigüedad mínima en días'
+        required: false
+        default: '30'
+      branch:
+        description: 'Rama a filtrar'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Simulacro'
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Limpiar ejecuciones antiguas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_FILTER: ${{ github.event.inputs.branch }}
+          MIN_AGE_DAYS: ${{ github.event.inputs.min_age_days }}
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+        run: |
+          [ -z "$MIN_AGE_DAYS" ] && MIN_AGE_DAYS=30
+          if [ -z "$DRY_RUN_INPUT" ]; then
+            DRY_RUN="false"
+          else
+            DRY_RUN="$DRY_RUN_INPUT"
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Modo simulacro"
+          else
+            echo "Modo real"
+          fi
+
+          CUTOFF_EPOCH=$(date -d "-${MIN_AGE_DAYS} days" +%s)
+          echo "Fecha de corte: $CUTOFF_EPOCH ($MIN_AGE_DAYS días)"
+          if [ -n "$BRANCH_FILTER" ]; then
+            echo "Filtro de rama: $BRANCH_FILTER"
+            branch_query=".headBranch == \"$BRANCH_FILTER\" and"
+          else
+            branch_query=""
+          fi
+
+          deleted_count=0
+          skipped_count=0
+          failed_count=0
+
+          while IFS=$'\t' read -r run_id run_epoch; do
+            [ -z "$run_id" ] && continue
+
+            if [ "$run_epoch" -lt "$CUTOFF_EPOCH" ]; then
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "[SIMULACRO] Se borraría: $run_id ($run_epoch)"
+                deleted_count=$((deleted_count + 1))
+              else
+                echo "Borrando: $run_id"
+                if gh run delete "$run_id" --repo "$GITHUB_REPOSITORY" 2>/dev/null; then
+                  deleted_count=$((deleted_count + 1))
+                else
+                  echo "Fallo al borrar $run_id"
+                  failed_count=$((failed_count + 1))
+                fi
+              fi
+            else
+              skipped_count=$((skipped_count + 1))
+            fi
+          done < <(
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --limit 500 \
+              --json databaseId,createdAt,status,headBranch \
+              --jq "[.[] | select(.status != \"in_progress\" and .status != \"queued\" and ${branch_query} true)] | .[] | [.databaseId, (.createdAt | fromdateiso8601)] | @tsv"
+          )
+
+          {
+            echo "## Resumen"
+            echo ""
+            echo "- Borradas: $deleted_count"
+            echo "- Conservadas: $skipped_count"
+            echo "- Fallos: $failed_count"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Borradas: $deleted_count"
+          echo "Conservadas: $skipped_count"
+          echo "Fallos: $failed_count"

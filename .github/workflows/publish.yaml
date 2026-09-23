@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: 'Paquete(s) a construir, separados por comas:'
+        description: 'Paquetes a construir, separados por comas'
         type: string
         default: ''
       build_all:
@@ -35,7 +35,7 @@ env:
 
 jobs:
   detect:
-    name: Determinar paquetes a compilar
+    name: Determinar paquetes
     runs-on: ubuntu-latest
     outputs:
       packages_json: ${{ steps.detect.outputs.packages_json }}
@@ -43,21 +43,18 @@ jobs:
       has_packages: ${{ steps.detect.outputs.has_packages }}
       regenerate_repodata: ${{ steps.detect.outputs.regenerate_repodata }}
     steps:
-      - name: Descargar mis plantillas
+      - name: Descargar plantillas
         uses: classabbyamp/treeless-checkout-action@v1
 
-      - name: Determinar qué paquetes compilar
+      - name: Determinar paquetes a compilar
         id: detect
         run: |
           pkgs=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_all }}" = "true" ]; then
-            echo "Modo: forzar compilación de TODOS los paquetes"
             pkgs="$(cd srcpkgs && ls -d */ | tr -d /)"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.packages }}" ]; then
-            echo "Modo: forzar compilación de paquetes concretos"
             pkgs="$(echo '${{ inputs.packages }}' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')"
           else
-            echo "Modo: automático, detectando paquetes modificados"
             base="${{ github.event.before }}"
             if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
               base="HEAD~1"
@@ -77,9 +74,6 @@ jobs:
           done <<< "$pkgs"
           pkgs="$(printf '%s' "$resolved" | sort -u | grep -v '^$' || true)"
 
-          echo "Paquetes a compilar:"
-          echo "$pkgs"
-
           {
             echo 'packages_list<<EOF'
             echo "$pkgs"
@@ -96,7 +90,6 @@ jobs:
           fi
 
           regenerate="${{ github.event_name == 'workflow_dispatch' && inputs.regenerate_repodata == true }}"
-          echo "¿Forzar regeneración completa del repodata?: $regenerate"
           echo "regenerate_repodata=$regenerate" >> "$GITHUB_OUTPUT"
 
   build:
@@ -127,29 +120,31 @@ jobs:
           xbps-install -y sudo bash git
           useradd -G xbuilder -M builder
 
-      - name: Descargar mis plantillas
+      - name: Descargar plantillas
         uses: classabbyamp/treeless-checkout-action@v1
 
       - name: Clonar void-packages
         run: git clone --depth 1 https://github.com/void-linux/void-packages.git vp
 
-      - name: Fusionar mis plantillas con void-packages
+      - name: Fusionar plantillas
         run: cp -r --remove-destination srcpkgs/. vp/srcpkgs/
 
       - name: Inicializar xbps-src
         working-directory: vp
         run: |
           chown -R builder:builder .
+          echo "XBPS_ALLOW_RESTRICTED=yes" >> etc/conf
+          echo "XBPS_BUILD_ENVIRONMENT=void-packages-ci" >> etc/conf
           sudo -Eu builder ./xbps-src binary-bootstrap
 
       - name: Compilar paquete
         working-directory: vp
         run: |
-          echo "::group::Compilando ${{ matrix.package }}"
+          echo "::group::${{ matrix.package }}"
           sudo -Eu builder ./xbps-src pkg "${{ matrix.package }}"
           echo "::endgroup::"
 
-      - name: Verificar integridad del paquete compilado
+      - name: Verificar integridad
         working-directory: vp
         run: |
           shopt -s nullglob
@@ -161,14 +156,13 @@ jobs:
           verify_dir="$(mktemp -d)"
           cp "${files[@]}" "$verify_dir"/
           out="$(xbps-rindex -a "$verify_dir"/*.xbps 2>&1)" || true
-          echo "$out"
           if echo "$out" | grep -q 'ERROR:'; then
-            echo "::error::Paquete corrupto detectado en ${{ matrix.package }}, no se subirá"
+            echo "::error::Paquete corrupto en ${{ matrix.package }}"
             exit 1
           fi
           rm -rf "$verify_dir"
 
-      - name: Subir paquete(s) compilado(s)
+      - name: Subir paquete
         uses: actions/upload-artifact@v4
         with:
           name: binpkgs-${{ matrix.package }}
@@ -206,44 +200,49 @@ jobs:
           xbps-install -y sudo bash git github-cli
           useradd -G xbuilder -M builder
 
-      - name: Descargar todos los paquetes compilados
+      - name: Descargar paquetes compilados
         if: needs.detect.outputs.has_packages == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: binpkgs-*
           path: binpkgs
 
-      - name: Descargar release actual (si existe)
+      - name: Descargar release actual
         run: |
           mkdir -p repo
-          gh release download "$RELEASE_TAG" -R "${{ github.repository }}" -D repo --clobber || \
-            echo "Todavía no existe la release '$RELEASE_TAG', se creará una nueva."
+          gh release download "$RELEASE_TAG" -R "${{ github.repository }}" -D repo --clobber || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restaurar clave privada de firma
+      - name: Restaurar clave privada
         run: |
           echo "${{ secrets.XBPS_PRIVATE_KEY }}" | base64 -d > /tmp/private.pem
           chmod 600 /tmp/private.pem
           chown builder:builder /tmp/private.pem
 
-      - name: Sustituir paquetes actualizados y regenerar repodata
+      - name: Regenerar repodata
         working-directory: repo
         run: |
           before_list="$(ls . 2>/dev/null | sort)"
 
           while IFS= read -r pkg; do
             [ -z "$pkg" ] && continue
-            rm -f "${pkg}"-*.xbps "${pkg}"-*.xbps.sig2
+            rm -f "${pkg}"-*.xbps "${pkg}"-*.xbps.sig2 "${pkg}"-*.xbps.sha256sum "${pkg}"-*.xbps.sha512sum
           done <<< "${{ needs.detect.outputs.packages_list }}"
 
           mkdir -p ../binpkgs
           find ../binpkgs -type f -name '*.xbps' -exec cp -f {} . \;
 
           if [ "${{ needs.detect.outputs.regenerate_repodata }}" = "true" ]; then
-            echo "Forzando la regeneración completa del x86_64-repodata a partir de todos los paquetes de la release..."
             rm -f x86_64-repodata x86_64-repodata.sig2
           fi
+
+          for f in *.xbps; do
+            [ -f "$f" ] || continue
+            [ -f "$f.sha256sum" ] && continue
+            sha256sum "$f" | cut -d' ' -f1 > "$f.sha256sum"
+            sha512sum "$f" | cut -d' ' -f1 > "$f.sha512sum"
+          done
 
           chown -R builder:builder .
 
@@ -255,8 +254,6 @@ jobs:
           after_list="$(ls . 2>/dev/null | sort)"
 
           comm -23 <(echo "$before_list") <(echo "$after_list") > /tmp/stale_assets.txt || true
-          echo "Recursos obsoletos a eliminar de la release:"
-          cat /tmp/stale_assets.txt || true
 
       - name: Sincronizar release
         run: |
@@ -281,9 +278,9 @@ jobs:
         run: rm -f /tmp/private.pem
 
   no-changes:
-    name: Sin cambios que compilar
+    name: Sin cambios
     needs: detect
     if: needs.detect.outputs.has_packages == 'false' && needs.detect.outputs.regenerate_repodata == 'false'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "No hay paquetes que compilar en esta ejecución."
+      - run: echo "Sin paquetes que compilar."

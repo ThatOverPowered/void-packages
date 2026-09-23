@@ -36,10 +36,10 @@ jobs:
           xbps-install -y sudo bash git
           useradd -G xbuilder -M builder
 
-      - name: Descargar mis plantillas
+      - name: Descargar plantillas
         uses: classabbyamp/treeless-checkout-action@v1
 
-      - name: Determinar qué paquetes cambiaron
+      - name: Determinar paquetes cambiados
         id: pkgs
         run: |
           pkgs=""
@@ -64,9 +64,6 @@ jobs:
           done <<< "$pkgs"
           pkgs="$(printf '%s' "$resolved" | sort -u | grep -v '^$' || true)"
 
-          echo "Paquetes a compilar:"
-          echo "$pkgs"
-
           {
             echo "list<<EOF"
             echo "$pkgs"
@@ -76,21 +73,40 @@ jobs:
       - name: Clonar void-packages
         run: git clone --depth 1 https://github.com/void-linux/void-packages.git vp
 
-      - name: Fusionar mis plantillas con void-packages
+      - name: Fusionar plantillas
         run: cp -r --remove-destination srcpkgs/. vp/srcpkgs/
 
       - name: Inicializar xbps-src
         working-directory: vp
         run: |
           chown -R builder:builder .
+          echo "XBPS_ALLOW_RESTRICTED=yes" >> etc/conf
+          echo "XBPS_BUILD_ENVIRONMENT=void-packages-ci" >> etc/conf
           sudo -Eu builder ./xbps-src binary-bootstrap
 
-      - name: Compilar paquetes modificados
+      - name: Ordenar por dependencias
+        id: sorted
+        working-directory: vp
+        run: |
+          pkgs="${{ steps.pkgs.outputs.list }}"
+          if [ -z "$pkgs" ]; then
+            sorted=""
+          else
+            sorted="$(echo "$pkgs" | xargs -r sudo -Eu builder ./xbps-src sort-dependencies)"
+          fi
+
+          {
+            echo "list<<EOF"
+            echo "$sorted"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compilar paquetes
         working-directory: vp
         run: |
           while IFS= read -r pkg; do
             [ -z "$pkg" ] && continue
-            echo "::group::Compilando $pkg"
+            echo "::group::$pkg"
             sudo -Eu builder ./xbps-src pkg "$pkg"
             echo "::endgroup::"
 
@@ -103,10 +119,9 @@ jobs:
             verify_dir="$(mktemp -d)"
             cp "${files[@]}" "$verify_dir"/
             out="$(xbps-rindex -a "$verify_dir"/*.xbps 2>&1)" || true
-            echo "$out"
             if echo "$out" | grep -q 'ERROR:'; then
-              echo "::error::Paquete corrupto detectado en $pkg"
+              echo "::error::Paquete corrupto en $pkg"
               exit 1
             fi
             rm -rf "$verify_dir"
-          done <<< "${{ steps.pkgs.outputs.list }}"
+          done <<< "${{ steps.sorted.outputs.list }}"
