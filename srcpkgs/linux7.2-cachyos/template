@@ -1,6 +1,6 @@
 # Template file for 'linux7.2-cachyos'
 pkgname=linux7.2-cachyos
-version=7.2.6
+version=7.2.7
 revision=1
 _tagrel=1
 _srcname="linux-cachyos-${version}-${_tagrel}"
@@ -12,7 +12,7 @@ license="GPL-2.0-only"
 homepage="https://github.com/CachyOS/linux-cachyos"
 changelog="https://github.com/CachyOS/linux/releases"
 distfiles="https://github.com/CachyOS/linux/archive/refs/tags/cachyos-${version}-${_tagrel}.tar.gz"
-checksum=df0e592cb404cc650664241820d53385b76b4fb284f2ab33ffa9bf9f7d43243d
+checksum=1069edb62f6167a98d613304329a003559f80ad8f23d980b47dd2750528d7fc8
 
 python_version=3
 archs="x86_64*"
@@ -45,7 +45,6 @@ export KBUILD_BUILD_USER=voidlinux
 export KBUILD_BUILD_HOST=voidlinux
 
 _isa_flags="-march=x86-64-v3 -mtune=generic"
-
 _llvm_args="CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1"
 
 post_patch() {
