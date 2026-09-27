@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=VSCodium - URL Handler
+Exec=/usr/bin/codium --open-url %U
+Icon=vscodium
+Type=Application
+NoDisplay=true
+StartupNotify=false
+Categories=Development;
+MimeType=x-scheme-handler/vscodium;

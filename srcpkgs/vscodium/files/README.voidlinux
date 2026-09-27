@@ -1,0 +1,11 @@
+This package installs the VSCodium, a Visual Studio Code fork without Microsoft branding, telemetry and licensing.
+
+Optional runtime dependencies, depending on your hardware:
+
+  - libdbusmenu-glib: Needed to show VSCodium's application menu in the KDE Plasma global menu applet.
+  - gvfs: Needed for the "move to trash" functionality when deleting files from within VSCodium instead of
+  permanently removing them.
+
+Install them manually if you need them:
+
+  # xbps-install -S libdbusmenu-glib gvfs

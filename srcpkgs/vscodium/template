@@ -1,0 +1,48 @@
+# Template file for 'vscodium'
+pkgname=vscodium
+version=1.135.06055
+revision=1
+archs="x86_64"
+depends="fontconfig python bash ca-certificates xdg-utils"
+nopie=yes
+nostrip=yes
+noshlibprovides=yes
+short_desc="Free/Libre Open Source Software Binary of VSCode"
+maintainer="ThatOverPowered <thatoverpowered@voidlinux.org>"
+license="MIT"
+homepage="https://vscodium.com"
+distfiles="https://github.com/VSCodium/vscodium/releases/download/${version}/VSCodium-linux-x64-${version}.tar.gz"
+checksum=c09d8ac8dd7f52b09ee159ee24b440541dfd8f937a0f6f88cc428c78e48ee1f2
+nopie=yes
+nostrip=yes
+
+do_install() {
+	vmkdir usr/lib/${pkgname}
+	vcopy "*" usr/lib/${pkgname}
+
+	find "${DESTDIR}/usr/lib/${pkgname}" -type d \( -name "*arm64*" -o -name "*armhf*" -o -name "*riscv64*" \
+		-o -name "*s390x*" -o -name "*loong64*" -o -name "*ppc64*" -o -name "*powerpc*" \) \
+		-exec rm -rf {} + 2>/dev/null || true
+
+	vinstall chrome-sandbox 4755 usr/lib/${pkgname}
+
+	vmkdir usr/bin
+	ln -s /usr/lib/${pkgname}/bin/codium ${DESTDIR}/usr/bin/codium
+
+	vinstall ${FILESDIR}/vscodium.desktop 644 usr/share/applications
+	vinstall ${FILESDIR}/vscodium-url-handler.desktop 644 usr/share/applications
+	vinstall ${FILESDIR}/vscodium-wayland.desktop 644 usr/share/applications
+
+	vinstall resources/app/resources/linux/code.png 644 usr/share/pixmaps vscodium.png
+	vinstall ${FILESDIR}/code.svg 644 usr/share/icons/hicolor/scalable/apps vscodium.svg
+
+	vmkdir usr/share/bash-completion/completions
+	vmkdir usr/share/zsh/site-functions
+	ln -s /usr/lib/${pkgname}/resources/completions/bash/codium \
+		${DESTDIR}/usr/share/bash-completion/completions/codium
+	ln -s /usr/lib/${pkgname}/resources/completions/zsh/_codium \
+		${DESTDIR}/usr/share/zsh/site-functions/_codium
+
+	vdoc ${FILESDIR}/README.voidlinux
+	vlicense resources/app/LICENSE.txt
+}

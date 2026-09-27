@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=VSCodium - Wayland
+Exec=/usr/bin/codium --enable-features=UseOzonePlatform,WaylandWindowDecorations --ozone-platform=wayland %F
+Icon=vscodium
+Type=Application
+StartupNotify=false
+StartupWMClass=codium
+Categories=Development;
+MimeType=text/plain;inode/directory;

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=VSCodium
+Exec=/usr/bin/codium %F
+Icon=vscodium
+Type=Application
+StartupNotify=false
+StartupWMClass=codium
+Categories=Development;
+MimeType=text/plain;inode/directory;
