@@ -3,7 +3,7 @@ pkgname=vscodium
 version=1.135.06055
 revision=1
 archs="x86_64"
-depends="fontconfig python bash ca-certificates xdg-utils"
+depends="ca-certificates xdg-utils"
 nopie=yes
 nostrip=yes
 noshlibprovides=yes
@@ -20,9 +20,11 @@ do_install() {
 	vmkdir usr/lib/${pkgname}
 	vcopy "*" usr/lib/${pkgname}
 
-	find "${DESTDIR}/usr/lib/${pkgname}" -type d \( -name "*arm64*" -o -name "*armhf*" -o -name "*riscv64*" \
-		-o -name "*s390x*" -o -name "*loong64*" -o -name "*ppc64*" -o -name "*powerpc*" \) \
+	find "${DESTDIR}/usr/lib/${pkgname}/resources/app/node_modules.asar.unpacked/@vscode/ripgrep-universal/bin" \
+		-mindepth 1 -maxdepth 1 -type d ! -name "linux-x64" \
 		-exec rm -rf {} + 2>/dev/null || true
+
+	rm -rf "${DESTDIR}/usr/lib/${pkgname}/resources/app/node_modules.asar.unpacked/@microsoft/mxc-sdk/bin/arm64"
 
 	vinstall chrome-sandbox 4755 usr/lib/${pkgname}
 
